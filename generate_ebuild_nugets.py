@@ -61,7 +61,7 @@ def get_nugets(target_path):
                     if lib_info.get("type") == "package":
                         # lib_id is "PackageName/Version"
                         if "/" in lib_id:
-                            name_ver = lib_id.replace("/", "@")
+                            name_ver = lib_id.lower().replace("/", "@")
                             nugets.add(name_ver)
             except json.JSONDecodeError:
                 print(f"Warning: Failed to parse {assets_file}", file=sys.stderr)

@@ -7,3 +7,5 @@ obj/
 *.userosscache
 *.sln.docstates
 .vs/
+venv/
+.pytest_cache/
