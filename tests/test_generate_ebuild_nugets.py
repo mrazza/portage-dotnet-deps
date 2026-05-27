@@ -96,3 +96,82 @@ def test_update_ebuild_update(mock_file, mock_exists):
     written_data = "".join(call.args[0] for call in mock_file().write.call_args_list)
     assert 'NUGETS="\n    new@2.0.0\n"' in written_data
     assert 'old@1.0.0' not in written_data
+
+
+@patch('subprocess.run')
+def test_get_nugets_dotnet_missing(mock_run):
+    mock_run.side_effect = FileNotFoundError()
+    with pytest.raises(SystemExit) as e:
+        get_nugets("/fake/path")
+    assert e.value.code == 1
+
+@patch('subprocess.run')
+@patch('os.walk')
+@patch('builtins.open', new_callable=mock_open)
+@patch('os.path.isdir')
+def test_get_nugets_target_path_variations(mock_isdir, mock_file, mock_walk, mock_run):
+    # Test path is not directory, and dir_name becomes empty (meaning search_dir = ".")
+    mock_isdir.return_value = False
+    mock_run.return_value = MagicMock(returncode=0)
+    mock_walk.return_value = [('.', [], ['project.assets.json'])]
+    mock_file.return_value.read.return_value = json.dumps({"libraries": {}})
+    
+    # Passing empty string or a filename with no directory part
+    result = get_nugets("project.csproj")
+    assert result == []
+
+@patch('subprocess.run')
+@patch('os.walk')
+@patch('builtins.open', new_callable=mock_open)
+def test_get_nugets_json_decode_error(mock_file, mock_walk, mock_run):
+    mock_run.return_value = MagicMock(returncode=0)
+    mock_walk.return_value = [('/fake/path', [], ['project.assets.json'])]
+    mock_file.return_value.read.side_effect = ["{invalid json}", "{}"]
+    
+    # First is invalid JSON, should print warning and return empty
+    result = get_nugets("/fake/path")
+    assert result == []
+
+@patch('os.path.exists')
+@patch('builtins.open', new_callable=mock_open, read_data='some other content\n')
+def test_update_ebuild_append(mock_file, mock_exists):
+    mock_exists.return_value = True
+    nugets_block = 'NUGETS="\n    pkg@1.0.0\n"'
+    
+    update_ebuild('test.ebuild', nugets_block)
+    
+    written_data = "".join(call.args[0] for call in mock_file().write.call_args_list)
+    assert 'some other content\n\n\nNUGETS="\n    pkg@1.0.0\n"\n' in written_data
+
+@patch('generate_ebuild_nugets.get_nugets')
+@patch('sys.argv', ['generate_ebuild_nugets.py', '/fake/path'])
+def test_main_stdout(mock_get_nugets, capsys):
+    mock_get_nugets.return_value = ["a@1.0", "b@2.0"]
+    from generate_ebuild_nugets import main
+    main()
+    captured = capsys.readouterr()
+    assert 'NUGETS="\n    a@1.0\n    b@2.0\n"' in captured.out
+
+@patch('generate_ebuild_nugets.get_nugets')
+@patch('generate_ebuild_nugets.update_ebuild')
+@patch('sys.argv', ['generate_ebuild_nugets.py', '/fake/path', '--ebuild', 'test.ebuild'])
+def test_main_ebuild(mock_update_ebuild, mock_get_nugets):
+    mock_get_nugets.return_value = ["a@1.0"]
+    from generate_ebuild_nugets import main
+    main()
+    mock_update_ebuild.assert_called_once_with('test.ebuild', 'NUGETS="\n    a@1.0\n"')
+
+def test_main_invocation():
+    import runpy
+    with patch('sys.argv', ['generate_ebuild_nugets.py', '--help']):
+        try:
+            runpy.run_path(
+                os.path.abspath(os.path.join(os.path.dirname(__file__), '../generate_ebuild_nugets.py')),
+                run_name='__main__'
+            )
+        except SystemExit as e:
+            assert e.code == 0
+
+
+
+
